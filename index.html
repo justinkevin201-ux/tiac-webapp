@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Battambang&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: "class" };</script> <!-- Night Mode ដំណើរការតាម class "dark" -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script> <!-- Supabase: Database + Google Login + Storage -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -29,7 +30,22 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
+
+/* =====================================================================
+   Supabase (Database ឥតគិតថ្លៃ): ដាក់ Project URL និង anon key នៅទីនេះ
+   - ទុកទទេ = Demo Mode (ទិន្នន័យទុកក្នុង Browser ដូចមុន)
+   - បំពេញរួច = Cloud Mode (Google Login, Database, Storage ពិតប្រាកដ)
+   - anon key ជាគ្រាប់ចុចសាធារណៈ (សុវត្ថិភាពមកពីច្បាប់ RLS ក្នុង SQL)
+   - កុំដាក់ service_role key ឲ្យសោះ!
+   ===================================================================== */
+const SUPABASE_URL = "https://ndkijnxiypwftfupcrnp.supabase.co";       // ឧ. "https://xxxx.supabase.co"
+const SUPABASE_ANON_KEY = "sb_publishable_E-Fx_2KsySkjH3U5D_bn1g_VEvYUw7j";  // ឧ. "eyJhbGciOi..."
+const sb = SUPABASE_URL && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+// រូបតំណាងគ្មានរូប (ប្រើសម្រាប់ភ្ញៀវ ឬអ្នកប្រើគ្មានរូប Google)
+const GUEST_PHOTO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%2394a3b8'/%3E%3Ccircle cx='20' cy='15' r='7' fill='white'/%3E%3Cellipse cx='20' cy='36' rx='13' ry='10' fill='white'/%3E%3C/svg%3E";
+const GUEST = { id: "guest", name: "Guest Viewer", email: "View only (Dashboard)", photo: GUEST_PHOTO, status: "approved" };
 
 /* =====================================================================
    ផ្នែកទី ១៖ រូបតំណាង (Icons)
@@ -520,10 +536,33 @@ const EXTRA = {
         browse: "ជ្រើសឯកសារពីកុំព្យូទ័រ", allowEdit: "អនុញ្ញាតឲ្យបុគ្គលិកកែទិន្នន័យ Dashboard", photoBtn: "បញ្ចូលរូប ៥" },
 };
 
-// រក្សាទុកទិន្នន័យក្នុង Browser (localStorage) ដើម្បីកុំបាត់ពេល Refresh
+// រក្សាទុកទិន្នន័យ: localStorage (ជានិច្ច) + Supabase តារាង app_state (បើកំណត់ហើយ)
+// សិទ្ធិសរសេរត្រូវបានគ្រប់គ្រងដោយច្បាប់ RLS ក្នុង Database មិនមែនក្នុងកូដនេះទេ
 function usePersist(key, initial) {
   const [v, setV] = useState(() => { try { return JSON.parse(localStorage.getItem(key)) ?? initial; } catch { return initial; } });
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }, [key, v]);
+  const loaded = useRef(!sb);       // Cloud: រង់ចាំអានពី Database រួចសិន មុនសរសេរ
+  const fromCloud = useRef(false);  // ទើបទាញពី Cloud → កុំសរសេរត្រឡប់ទៅវិញ
+
+  // អានពី Cloud ពេលបើក និងពេល Login/Logout (សិទ្ធិអានប្តូរ)
+  useEffect(() => {
+    if (!sb) return;
+    const load = () => sb.from("app_state").select("value").eq("key", key).maybeSingle().then(({ data }) => {
+      if (data) { fromCloud.current = true; setV(data.value); }
+      loaded.current = true;
+    });
+    load();
+    const { data: { subscription } } = sb.auth.onAuthStateChange(() => load());
+    return () => subscription.unsubscribe();
+  }, [key]);
+
+  // សរសេរពេលទិន្នន័យប្តូរ
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
+    if (!sb || !loaded.current) return;
+    if (fromCloud.current) { fromCloud.current = false; return; }
+    sb.from("app_state").upsert({ key, value: v, updated_at: new Date().toISOString() })
+      .then(({ error }) => { if (error) console.warn("Cloud save blocked:", error.message); });
+  }, [key, v]);
   return [v, setV];
 }
 
@@ -533,8 +572,11 @@ const openDB = () => new Promise((ok, no) => {
   r.onupgradeneeded = () => r.result.createObjectStore("files");
   r.onsuccess = () => ok(r.result); r.onerror = no;
 });
-const fileSave = async (id, file) => (await openDB()).transaction("files", "readwrite").objectStore("files").put(file, id);
-const fileGet = async (id) => { const db = await openDB(); return new Promise((ok) => { const q = db.transaction("files").objectStore("files").get(id); q.onsuccess = () => ok(q.result); }); };
+const idbSave = async (id, file) => (await openDB()).transaction("files", "readwrite").objectStore("files").put(file, id);
+const idbGet = async (id) => { const db = await openDB(); return new Promise((ok) => { const q = db.transaction("files").objectStore("files").get(id); q.onsuccess = () => ok(q.result); }); };
+// ទុក/ទាញ File: Cloud Mode ប្រើ Supabase Storage (bucket "files"), Demo Mode ប្រើ IndexedDB
+const fileSave = async (id, file) => (sb ? sb.storage.from("files").upload(id, file, { upsert: true, contentType: file.type || undefined }) : idbSave(id, file));
+const fileGet = async (id) => { if (!sb) return idbGet(id); const { data } = await sb.storage.from("files").download(id); return data; };
 const guessFormat = (name) => {            // ទាយ Format ពីកន្ទុយឈ្មោះ File
   const ext = name.split(".").pop().toLowerCase();
   if (ext === "pdf") return "PDF";
@@ -731,14 +773,18 @@ function App() {
   /* ---------- ក. State (ទិន្នន័យដែលផ្លាស់ប្តូរបាន) ---------- */
   const [lang, setLang] = useState("en");               // ភាសា: "en" ឬ "km"
   const [theme, setTheme] = useState("light");          // ពន្លឺ: "light" ឬ "dark"
-  const [role, setRole] = useState("admin");            // តួនាទី: "admin" | "staff" | "viewer"
+  const [demoRole, setDemoRole] = useState("admin");  // Demo Mode: ប្តូរតួនាទីដោយដៃ
+  const [session, setSession] = useState(null);         // Google session (Cloud Mode)
+  const [profile, setProfile] = useState(null);         // ជួរក្នុងតារាង profiles: role = pending | staff | admin
+  // Cloud Mode: តួនាទីមកពី profiles (មិនទាន់ Login ឬ pending = "viewer" មើលបានតែ Dashboard)
+  const role = sb ? (profile?.role === "admin" ? "admin" : profile?.role === "staff" ? "staff" : "viewer") : demoRole;
   const [activeTab, setActiveTab] = useState("dashboard"); // ទំព័រដែលកំពុងបើក
   const [activeSub, setActiveSub] = useState("");       // Sub-Folder ដែលកំពុងជ្រើស
   const [modal, setModal] = useState(null);             // Popup ដែលកំពុងបើក: "login" | "permissions" | "upload" | "editDash" | null
   const [accessDenied, setAccessDenied] = useState(false); // បង្ហាញបដាក្រហម "ហាមឃាត់"
 
-  const [users, setUsers] = useState(INITIAL_USERS);
-  const [currentUser, setCurrentUser] = useState(INITIAL_USERS[0]);
+  const [users, setUsers] = useState(sb ? [] : INITIAL_USERS);
+  const [currentUser, setCurrentUser] = useState(sb ? GUEST : INITIAL_USERS[0]);
   const [permissions, setPermissions] = usePersist("tia-perm", INITIAL_PERMISSIONS);
 
   const [documents, setDocuments] = usePersist("tia-docs", initialDocuments);
@@ -746,9 +792,9 @@ function App() {
   const [photos, setPhotos] = usePersist("tia-photos", droneImages);  // រូប Drone (អតិបរមា ១០)
   const [editing, setEditing] = useState(null);          // តារាងដែលកំពុងកែ: "machinery" | "manpower" | "milestones" | "weekly" | null
   const [newFile, setNewFile] = useState(null);          // File ដែលបានជ្រើសពី PC
-  const [sCurve, setSCurve] = useState(initialSCurveData);
-  const [completePct, setCompletePct] = useState(68);   // % ការងារសម្រេចបាន
-  const [dates, setDates] = useState({ startDate: "2026-05-01", endDate: "2026-12-31" });
+  const [sCurve, setSCurve] = usePersist("tia-scurve", initialSCurveData);
+  const [completePct, setCompletePct] = usePersist("tia-pct", 68);   // % ការងារសម្រេចបាន
+  const [dates, setDates] = usePersist("tia-dates", { startDate: "2026-05-01", endDate: "2026-12-31" });
 
   const [filters, setFilters] = useState({ search: "", format: "ALL", status: "ALL", sort: "DATE_DESC" });
   const [newDoc, setNewDoc] = useState(EMPTY_DOC_FORM);  // Form បញ្ចូលឯកសារថ្មី
@@ -758,6 +804,36 @@ function App() {
   const t = { ...translations[lang], ...EXTRA[lang] };   // អត្ថបទតាមភាសាបច្ចុប្បន្ន
   const isAdmin = role === "admin";
   const isKm = lang === "km";
+
+  /* ---------- Supabase Auth: Google Login, តួនាទី, បញ្ជីអ្នកប្រើ ---------- */
+  // ១) តាមដាន session
+  useEffect(() => {
+    if (!sb) return;
+    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+  // ២) អាន profile របស់ខ្លួន (role: pending | staff | admin)
+  useEffect(() => {
+    if (!sb) return;
+    if (!session) return setProfile(null);
+    sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle().then(({ data }) => setProfile(data));
+  }, [session]);
+  // ៣) បង្ហាញឈ្មោះ/រូបអ្នកប្រើនៅ Sidebar
+  useEffect(() => {
+    if (!sb) return;
+    setCurrentUser(profile
+      ? { id: profile.id, name: profile.name || profile.email, email: profile.email, photo: profile.photo || GUEST_PHOTO, status: profile.role === "pending" ? "pending" : "approved" }
+      : GUEST);
+  }, [profile]);
+  // ៤) Admin ទាញបញ្ជីអ្នកប្រើទាំងអស់ (សម្រាប់អនុម័ត)
+  useEffect(() => {
+    if (!sb || !isAdmin) return;
+    sb.from("profiles").select("*").order("created_at").then(({ data }) => setUsers((data || []).map((p) => ({
+      id: p.id, name: p.name || p.email, email: p.email, photo: p.photo || GUEST_PHOTO,
+      role: p.role === "admin" ? "admin" : "staff", status: p.role === "pending" ? "pending" : "approved",
+    }))));
+  }, [isAdmin]);
 
   // Night Mode: ដាក់/ដក class "dark" លើ <html>
   useEffect(() => {
@@ -829,7 +905,7 @@ function App() {
       downloads: 0,
       hasFile: true,
     };
-    fileSave(created.id, newFile);   // រក្សាទុក File ពិតក្នុង IndexedDB
+    Promise.resolve(fileSave(created.id, newFile)).then((r) => r && r.error && alert("Upload failed: " + r.error.message));   // រក្សាទុក File ពិតក្នុង IndexedDB
     setNewFile(null);
     setDocuments([created, ...documents]);
     setNewDoc(EMPTY_DOC_FORM);
@@ -848,18 +924,24 @@ function App() {
 
   // ចុះឈ្មោះតាម Google (ក្លែងធ្វើ) → ក្លាយជា "pending" រង់ចាំ Admin អនុម័ត
   const simulateGoogleLogin = () => {
+    // Cloud Mode: Login ពិតតាម Google (ទំព័រនឹងប្តូរទៅ Google ហើយត្រឡប់មកវិញ)
+    if (sb) return sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + window.location.pathname } });
     const newUser = {
       id: String(Date.now()), name: "New Google User", email: "user.google@gmail.com",
       role: "staff", status: "pending", photo: photo("photo-1535713875002-d1d0cf377fde"),
     };
     setUsers([...users, newUser]);
     setCurrentUser(newUser);
-    setRole("viewer");
+    setDemoRole("viewer");
     setModal(null);
     flashAccessDenied();
   };
 
-  const approveUser = (id) => setUsers(users.map((u) => (u.id === id ? { ...u, status: "approved" } : u)));
+  const approveUser = async (id) => {
+    // Cloud Mode: ប្តូរ role ក្នុង Database ពី pending → staff (ច្បាប់ RLS អនុញ្ញាតតែ Admin)
+    if (sb) { const { error } = await sb.from("profiles").update({ role: "staff" }).eq("id", id); if (error) return alert(error.message); }
+    setUsers(users.map((u) => (u.id === id ? { ...u, status: "approved" } : u)));
+  };
 
   // បើក Form កែប្រែ Dashboard (ចម្លងតម្លៃបច្ចុប្បន្នមកកែ)
   const openEditDash = () => {
@@ -926,6 +1008,8 @@ function App() {
             <Icon name="ShieldCheck" size={14} /><span>{t.managePermissions}</span>
             {users.some((u) => u.status === "pending") && <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />}
           </button>
+        ) : session ? (
+          <button onClick={() => sb.auth.signOut()} className="w-full py-1.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/30">Sign out</button>
         ) : (
           <button onClick={() => setModal("login")} className="w-full py-1.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center justify-center gap-1.5">
             <Icon name="LogIn" size={14} /><span>{t.loginGoogle}</span>
@@ -951,7 +1035,7 @@ function App() {
         <span className="text-blue-600">Total Visits: 1,594</span>
       </div>
       <div className="flex items-center gap-3">
-        <button onClick={() => setRole(role === "admin" ? "staff" : role === "staff" ? "viewer" : "admin")}
+        <button onClick={() => !sb && setDemoRole(role === "admin" ? "staff" : role === "staff" ? "viewer" : "admin")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold border ${isAdmin ? "bg-blue-600 border-blue-600 text-white" : "bg-amber-500/10 border-amber-500/30 text-amber-600"}`}>
           {isAdmin ? t.adminRole : role === "staff" ? t.staffRole : t.viewerRole}
         </button>
@@ -1197,7 +1281,7 @@ function App() {
     <Modal title={t.googleAuthNotice} onClose={() => setModal(null)}>
       <p className="py-4 text-center text-slate-600 dark:text-slate-300">Register or log in using your corporate Google Account to request staff access from the Project Admin.</p>
       <button onClick={simulateGoogleLogin} className="w-full py-2.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center justify-center gap-2">
-        <Icon name="UserPlus" /><span>Continue with Google (Simulate)</span>
+        <Icon name="UserPlus" /><span>{sb ? "Continue with Google" : "Continue with Google (Simulate)"}</span>
       </button>
     </Modal>
   );
