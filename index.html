@@ -821,14 +821,17 @@ function App() {
       if (data) {
         setProfile(data);
         
-        // ពិនិត្យមើលថាតើគណនីស្ថិតក្នុងស្ថានភាព pending ដែរឬទេ
+        // pending: ជូនដំណឹងម្តងគត់ក្នុង Tab នីមួយៗ (មិនលោតម្តងទៀតពេល token refresh)
         if (data.role === 'pending') {
-          // អ្នកអាចផ្ទៀងផ្ទាត់ភាសា (ឧ. lang របស់អ្នក) ទីនេះ ឬប្រើជាភាសាខ្មែរ/អង់គ្លេស
-          alert("សូមអរគុណសម្រាប់ការចុះឈ្មោះ! គណនីរបស់អ្នកស្ថិតក្នុងស្ថានភាពរង់ចាំការអនុម័តពី Admin។ សូមរង់ចាំការផ្ទៀងផ្ទាត់។");
+          let seen = false;
+          try { seen = sessionStorage.getItem("tia-pending-alert") === data.id; sessionStorage.setItem("tia-pending-alert", data.id); } catch (e) {}
+          if (!seen) alert(lang === "km"
+            ? "សូមអរគុណសម្រាប់ការចុះឈ្មោះ! គណនីរបស់អ្នកកំពុងរង់ចាំការអនុម័តពី Admin។"
+            : "Thank you for registering! Your account is awaiting Admin approval.");
         }
       }
     });
-  }, [session]);
+  }, [session?.user?.id]);   // ដំណើរការតែពេល user ផ្លាស់ប្តូរ មិនមែនគ្រប់ token refresh
   // ៣) បង្ហាញឈ្មោះ/រូបអ្នកប្រើនៅ Sidebar
   useEffect(() => {
     if (!sb) return;
@@ -1496,6 +1499,13 @@ function App() {
       {sidebar}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {header}
+        {sb && profile?.role === "pending" && (
+          <div className="bg-amber-500 text-black px-6 py-2.5 text-xs font-bold flex items-center gap-2">
+            <Icon name="ShieldAlert" /> {lang === "km"
+              ? "គណនីរបស់អ្នកកំពុងរង់ចាំការអនុម័តពី Admin។ អ្នកអាចមើលបានតែ Dashboard ប៉ុណ្ណោះសិន។"
+              : "Your account is awaiting Admin approval. You can only view the Dashboard for now."}
+          </div>
+        )}
         {accessDenied && (
           <div className="bg-rose-600 text-white px-6 py-2.5 text-xs font-bold flex items-center justify-between">
             <span className="flex items-center gap-2"><Icon name="Lock" /> {t.accessDenied}</span>
