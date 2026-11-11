@@ -39,8 +39,8 @@ const { useState, useEffect, useRef } = React;
    - anon key ជាគ្រាប់ចុចសាធារណៈ (សុវត្ថិភាពមកពីច្បាប់ RLS ក្នុង SQL)
    - កុំដាក់ service_role key ឲ្យសោះ!
    ===================================================================== */
-const SUPABASE_URL = "https://ndkijnxiypwftfupcrnp.supabase.co";       // ឧ. "https://xxxx.supabase.co"
-const SUPABASE_ANON_KEY = "sb_publishable_E-Fx_2KsySkjH3U5D_bn1g_VEvYUw7j";  // ឧ. "eyJhbGciOi..."
+const SUPABASE_URL = "https://ndkijnxiypwftfupcrnp.supabase.co";        
+const SUPABASE_ANON_KEY = "sb_publishable_E-Fx_2KsySkjH3U5D_bn1g_VEvYUw7j";  // <--- ដាក់ជំនួសកន្លែងនេះ
 const sb = SUPABASE_URL && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // រូបតំណាងគ្មានរូប (ប្រើសម្រាប់ភ្ញៀវ ឬអ្នកប្រើគ្មានរូប Google)
@@ -817,7 +817,17 @@ function App() {
   useEffect(() => {
     if (!sb) return;
     if (!session) return setProfile(null);
-    sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle().then(({ data }) => setProfile(data));
+    sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle().then(({ data }) => {
+      if (data) {
+        setProfile(data);
+        
+        // ពិនិត្យមើលថាតើគណនីស្ថិតក្នុងស្ថានភាព pending ដែរឬទេ
+        if (data.role === 'pending') {
+          // អ្នកអាចផ្ទៀងផ្ទាត់ភាសា (ឧ. lang របស់អ្នក) ទីនេះ ឬប្រើជាភាសាខ្មែរ/អង់គ្លេស
+          alert("សូមអរគុណសម្រាប់ការចុះឈ្មោះ! គណនីរបស់អ្នកស្ថិតក្នុងស្ថានភាពរង់ចាំការអនុម័តពី Admin។ សូមរង់ចាំការផ្ទៀងផ្ទាត់។");
+        }
+      }
+    });
   }, [session]);
   // ៣) បង្ហាញឈ្មោះ/រូបអ្នកប្រើនៅ Sidebar
   useEffect(() => {
