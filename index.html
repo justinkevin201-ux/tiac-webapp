@@ -17,7 +17,7 @@
 <style>
     .font-khmer { 
       font-family: "Koh Santepheap", "Battambang", sans-serif; 
-      font-size: 0.8rem; /* ឬអ្នកអាចដាក់ 17px ក៏បាន ធ្វើให้อក្សរទូទៅធំជាងមុនបន្តិច */
+      font-size: 0.8rem; /* ឬអ្នកអាចដាក់ 17px ក៏បាន ធ្វើការរក្សរទូទៅធំជាងមុនបន្តិច */
     }
     /* ពង្រីកទំហំអក្សរក្នុងតារាង និងកាតផ្សេងៗសម្រាប់ភាសាខ្មែរ */
     .font-khmer body, .font-khmer table, .font-khmer input, .font-khmer button {
@@ -345,16 +345,16 @@ const initialDocuments = [
 ];
 // រូបថត Drone ទាំង ១០ សម្រាប់បញ្ចាំងស្លាយ (ទាញយកពី Google Drive ផ្ទាល់)
 const droneImages = [
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_01", caption: "Drone Image 01 - Overview Pier & Abutment" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_02", caption: "Drone Image 02 - Foundation Operations" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_03", caption: "Drone Image 03 - Pre-Stressed Concrete Girder" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_04", caption: "Drone Image 04 - Bridge Deck Reinforcement" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_05", caption: "Drone Image 05 - Aerial View of Site" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_06", caption: "Drone Image 06 - Construction Progress" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_07", caption: "Drone Image 07 - River Section Works" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_08", caption: "Drone Image 08 - Approach Road Works" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_09", caption: "Drone Image 09 - Temporary Works & Facilities" },
-  { url: "https://lh3.googleusercontent.com/d/FILE_ID_10", caption: "Drone Image 10 - Overall Site Final View" }
+  { url: "https://lh3.googleusercontent.com/d/1wty1ba87b2zVILo7OCjsnmAzD0I0WoWC", caption: "Abutment inspection from MCCC" },
+  { url: "https://lh3.googleusercontent.com/d/1Gz_l6zn0U77VAoOcB0dKR8FmPvWXyGl-", caption: "ការទាញកាបូប PT" },
+  { url: "https://lh3.googleusercontent.com/d/1ohv9KjGE_DHz5bA2_jCXHJoq5vTc45dJ", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone layout view" },
+  { url: "https://lh3.googleusercontent.com/d/1qTCFxfXBd_khx6o__ej_kD3kj0cNjHK3", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-01" },
+  { url: "https://lh3.googleusercontent.com/d/1DBYqZGxeMPij2c0X3sZdst8dlT4IUD3f", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-02" },
+  { url: "https://lh3.googleusercontent.com/d/1piQ_bSRoIiWz5Fpm8ojQarKTOJXtDrMh", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-03" },
+  { url: "https://lh3.googleusercontent.com/d/1YojKP9O2w3ZDpuKfZ85Rp8DQuKJfGfLX", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-04" },
+  { url: "https://lh3.googleusercontent.com/d/1H-0QrPnenBYl-0y5CBP6PqgY68teBNcL", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-05" },
+  { url: "https://lh3.googleusercontent.com/d/1CGZecov219H2HV_uyEn2KnYEwIsDEcUu", caption: "ទិដ្ឋភាពក្នុងការដ្ឋាន ថតដោយDrone-Site preparation" },
+  { url: "https://lh3.googleusercontent.com/d/1ErTn9ZJcoxRKgb1k_1l7GMPP6xy6QOmC", caption: "សម្រួលការស Access Road" }
 ];
 // ទិន្នន័យក្រាប S-Curve: planned = តាមផែនការ %, actual = ជាក់ស្តែង %
 const initialSCurveData = [
@@ -1374,7 +1374,7 @@ function App() {
     </Modal>
   );
 
-  // ៤) កែប្រែទិន្នន័យ Dashboard (% សម្រេច, ថ្ងៃចាប់ផ្តើម/បញ្ចប់, S-Curve Actual)
+// ៤) កែប្រែទិន្នន័យ Dashboard (% សម្រេច, ថ្ងៃចាប់ផ្តើម/បញ្ចប់, S-Curve Actual)
   const editDashModal = modal === "editDash" && isAdmin && editForm && (
     <Modal title={t.editDashData} onClose={() => setModal(null)} width="max-w-xl">
       <form onSubmit={saveEditDash} className="space-y-4">
@@ -1389,16 +1389,81 @@ function App() {
             <input type="date" value={editForm.dates.endDate} className={INPUT} onChange={(e) => setEditForm({ ...editForm, dates: { ...editForm.dates, endDate: e.target.value } })} />
           </Field>
         </div>
-        <div className="font-bold pt-2 border-t border-inherit uppercase text-blue-600">S-Curve Monthly Actual % Data</div>
-        <div className="space-y-1.5">
+
+        <div className="flex items-center justify-between pt-2 border-t border-inherit">
+          <div className="font-bold uppercase text-blue-600">S-Curve Monthly Progress Data</div>
+          {/* ប៊ូតុងបន្ថែមខែថ្មី */}
+          <button 
+            type="button" 
+            onClick={() => {
+              const lastItem = editForm.sCurve[editForm.sCurve.length - 1];
+              const newMonthName = prompt("បញ្ចូលឈ្មោះខែថ្មី (ឧទាហរណ៍: Jan-27):", "Jan-27");
+              if (!newMonthName) return;
+              setEditForm({
+                ...editForm,
+                sCurve: [
+                  ...editForm.sCurve,
+                  { month: newMonthName, planned: lastItem ? lastItem.planned : 100, actual: lastItem ? lastItem.actual : 0 }
+                ]
+              });
+            }} 
+            className="px-2.5 py-1 rounded bg-emerald-600 text-white font-bold text-xs"
+          >
+            + បន្ថែមខែ (Add Month)
+          </button>
+        </div>
+
+        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
           {editForm.sCurve.map((item, i) => (
-            <div key={item.month} className="flex items-center gap-2">
-              <span className="w-20 font-bold">{item.month}</span>
-              <input type="number" value={item.actual} className={INPUT}
-                onChange={(e) => setEditForm({ ...editForm, sCurve: editForm.sCurve.map((d, j) => (j === i ? { ...d, actual: Number(e.target.value) } : d)) })} />
+            <div key={i} className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 p-2 rounded border border-inherit">
+              <input 
+                type="text" 
+                value={item.month} 
+                className={`${INPUT} w-24 font-bold`} 
+                onChange={(e) => setEditForm({
+                  ...editForm,
+                  sCurve: editForm.sCurve.map((d, j) => (j === i ? { ...d, month: e.target.value } : d))
+                })} 
+              />
+              <div className="flex items-center gap-1 flex-1">
+                <span className="text-[10px] text-blue-600 font-bold">Plan%:</span>
+                <input 
+                  type="number" 
+                  value={item.planned} 
+                  className={INPUT} 
+                  onChange={(e) => setEditForm({
+                    ...editForm,
+                    sCurve: editForm.sCurve.map((d, j) => (j === i ? { ...d, planned: Number(e.target.value) } : d))
+                  })} 
+                />
+              </div>
+              <div className="flex items-center gap-1 flex-1">
+                <span className="text-[10px] text-rose-600 font-bold">Actual%:</span>
+                <input 
+                  type="number" 
+                  value={item.actual} 
+                  className={INPUT} 
+                  onChange={(e) => setEditForm({
+                    ...editForm,
+                    sCurve: editForm.sCurve.map((d, j) => (j === i ? { ...d, actual: Number(e.target.value) } : d))
+                  })} 
+                />
+              </div>
+              {/* ប៊ូតុងលុបខែ */}
+              <button 
+                type="button" 
+                onClick={() => setEditForm({
+                  ...editForm,
+                  sCurve: editForm.sCurve.filter((_, j) => j !== i)
+                })} 
+                className="p-1 text-slate-400 hover:text-rose-600"
+              >
+                <Icon name="Trash2" size={14} />
+              </button>
             </div>
           ))}
         </div>
+
         <div className="flex justify-end gap-2 pt-4 border-t border-inherit">
           <button type="button" onClick={() => setModal(null)} className="px-3 py-1.5 rounded-md border border-inherit">{t.cancel}</button>
           <button type="submit" className="px-4 py-1.5 rounded-md font-bold bg-blue-600 hover:bg-blue-700 text-white">{t.saveChanges}</button>
