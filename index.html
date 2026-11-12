@@ -41,7 +41,7 @@ const { useState, useEffect, useRef } = React;
    ===================================================================== */
 const SUPABASE_URL = "https://ndkijnxiypwftfupcrnp.supabase.co";        
 const SUPABASE_ANON_KEY = "sb_publishable_E-Fx_2KsySkjH3U5D_bn1g_VEvYUw7j";  // <--- ដាក់ជំនួសកន្លែងនេះ
-const sb = SUPABASE_URL && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const sb = SUPABASE_URL && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
 
 // រូបតំណាងគ្មានរូប (ប្រើសម្រាប់ភ្ញៀវ ឬអ្នកប្រើគ្មានរូប Google)
 const GUEST_PHOTO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%2394a3b8'/%3E%3Ccircle cx='20' cy='15' r='7' fill='white'/%3E%3Cellipse cx='20' cy='36' rx='13' ry='10' fill='white'/%3E%3C/svg%3E";
@@ -551,7 +551,11 @@ function usePersist(key, initial) {
       loaded.current = true;
     });
     load();
-    const { data: { subscription } } = sb.auth.onAuthStateChange(() => load());
+    // ប្រុងប្រយ័ត្ន: កុំឲ្យ callback នេះ return Promise ឬហៅ Supabase ផ្ទាល់ ព្រោះបណ្តាលឲ្យ session គាំង (deadlock)
+    // ប្រើ setTimeout ដើម្បីហៅបន្ទាប់ពី callback ចប់ ហើយអានតែពេល Login/Logout
+    const { data: { subscription } } = sb.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(load, 0);
+    });
     return () => subscription.unsubscribe();
   }, [key]);
 
