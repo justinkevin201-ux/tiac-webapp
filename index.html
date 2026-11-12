@@ -531,9 +531,13 @@ function Field({ label, children }) {
 // ពាក្យបន្ថែម (រួមបញ្ចូលជាមួយ translations ពេលប្រើ)
 const EXTRA = {
   en: { edit: "Edit", addItem: "+ Add item", delete: "Delete", staffRole: "Staff (Allowed Sections)", viewerRole: "Viewer (Dashboard only)",
-        browse: "Choose file from PC", allowEdit: "Edit Dashboard Data (progress %, dates, S-Curve, lists, photos)", photoBtn: "Upload 10 Photos" },
+        browse: "Choose file from PC", allowEdit: "Edit Dashboard Data (progress %, dates, S-Curve, lists, photos)", photoBtn: "Upload 10 Photos",
+        copyright: "© 11/2026 LEVI JIN. All rights reserved. Reproduction or redistribution is strictly prohibited.",
+        totalFiles: "Total files", filesUnit: "files", totalTrackers: "Total" },
   km: { edit: "កែប្រែ", addItem: "+ បន្ថែមធាតុថ្មី", delete: "លុប", staffRole: "បុគ្គលិក (តាមផ្នែកអនុញ្ញាត)", viewerRole: "អ្នកមើល (តែ Dashboard)",
-        browse: "ជ្រើសឯកសារពីកុំព្យូទ័រ", allowEdit: "កែប្រែទិន្នន័យ Dashboard (%, ថ្ងៃ, S-Curve, បញ្ជី, រូបថត)", photoBtn: "បញ្ចូលរូប ៥" },
+        browse: "ជ្រើសឯកសារពីកុំព្យូទ័រ", allowEdit: "កែប្រែទិន្នន័យ Dashboard (%, ថ្ងៃ, S-Curve, បញ្ជី, រូបថត)", photoBtn: "បញ្ចូលរូប ៥",
+        copyright: "© ១១/២០២៦ LEVI JIN។ រក្សាសិទ្ធិគ្រប់យ៉ាង។ ការចម្លង ឬការផ្សព្វផ្សាយបន្តដោយគ្មានការអនុញ្ញាត ត្រូវបានហាមឃាត់ដាច់ខាត។",
+        totalFiles: "ឯកសារសរុប", filesUnit: "ឯកសារ", totalTrackers: "សរុប" },
 };
 
 // រក្សាទុកទិន្នន័យ: localStorage (ជានិច្ច) + Supabase តារាង app_state (បើកំណត់ហើយ)
@@ -760,9 +764,9 @@ function DroneGallery({ images, title, onUpload, uploadLabel }) {
       {current ? (
         <div className="relative rounded-md overflow-hidden aspect-video border border-inherit">
           <img src={current.url} alt="Drone view" className="w-full h-full object-cover" />
-          <div className="absolute bottom-0 inset-x-0 p-2.5 bg-black/80 text-white text-[11px] font-bold flex justify-between">
-            <span className="truncate pr-2">{current.caption}</span>
-            <span className="font-mono text-blue-300">{index % images.length + 1} / {images.length}</span>
+          <div className="absolute bottom-0 inset-x-0 px-3 pt-10 pb-2.5 bg-gradient-to-t from-black/65 via-black/25 to-transparent text-white text-[12px] font-bold flex items-end justify-between gap-2 pointer-events-none">
+            <span className="truncate" style={{ textShadow: "0 1px 4px rgba(0,0,0,.85)" }}>{current.caption}</span>
+            <span className="shrink-0 font-mono text-[10px] px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-white">{index % images.length + 1} / {images.length}</span>
           </div>
         </div>
       ) : <div className="text-xs text-slate-500 py-6 text-center">No photos yet.</div>}
@@ -1167,9 +1171,15 @@ function App() {
   const countType = (folder, word) =>
     documents.filter((d) => d.subFolder === folder || (d.category === "catRfiNcr" && d.name.includes(word))).length;
 
+  // លេខ DOC # ស្វ័យប្រវត្តិ: រាប់តាមលំដាប់ Upload (DOC-0001, 0002, ...) ហើយរាប់ឡើងវិញដោយខ្លួនឯង ពេលលុបឯកសារ
+  const numbered = [...documents]
+    .sort((a, b) => Number(a.id) - Number(b.id))
+    .map((d, i) => ({ ...d, docNum: `DOC-${String(i + 1).padStart(4, "0")}` }));
+  const totalDocs = numbered.filter((d) => canAccess(d.category)).length;   // ចំនួនឯកសារដែលមាននៅពេលនេះ
+
   // ចម្រោះឯកសារ: តាមសិទ្ធិ → ប្រភេទ → Sub-Folder → ស្វែងរក → Format → Status → តម្រៀប
   const q = filters.search.toLowerCase();
-  const filteredDocs = documents
+  const filteredDocs = numbered
     .filter((d) => canAccess(d.category))
     .filter((d) => activeTab === "dashboard" || d.category === activeTab)
     .filter((d) => activeTab === "dashboard" || !activeSub || d.subFolder === activeSub)
@@ -1179,7 +1189,7 @@ function App() {
     .sort(SORTERS[filters.sort]);
 
   // ឯកសារថ្មីៗ ៥ ចុងក្រោយ: តម្រៀបតាមថ្ងៃ Upload ថ្មីបំផុតមុន (មិនប៉ះពាល់ដោយការជ្រើស Sort ក្នុងទំព័រឯកសារ)
-  const recentDocs = documents
+  const recentDocs = numbered
     .filter((d) => canAccess(d.category))
     .filter((d) => d.name.toLowerCase().includes(q) || d.docNum.toLowerCase().includes(q))
     .sort((a, b) => (new Date(b.date) - new Date(a.date)) || (Number(b.id) - Number(a.id)))
@@ -1415,18 +1425,29 @@ function App() {
           <div className="flex justify-between text-[10px] font-mono text-slate-500 dark:text-slate-400"><span>Start: {dates.startDate}</span><span title="ខ្សែបញ្ឈរ = វឌ្ឍនភាពសម្រេចបាន">▎= Progress {completePct}%</span><span>End: {dates.endDate}</span></div>
         </Card>
 
-        <Card className="space-y-2">
-          <div className="text-xs font-bold uppercase">{t.rfiRfaSiNcrSummary}</div>
-          <div className="grid grid-cols-4 gap-2 text-center font-bold">
+        <Card className="relative overflow-hidden space-y-3">
+          <Accent colors={PALETTE.blue} />
+          <div className="flex justify-between items-center text-xs font-bold uppercase">
+            <span>{t.rfiRfaSiNcrSummary}</span>
+            <span className="text-[10px] text-blue-500 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded normal-case">
+              {t.totalTrackers}: {["RFI","RFA","SI","NCR"].reduce((n, k) => n + countType(k + " Folder", k), 0)}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-2.5 text-center">
             {[
-              ["RFI", countType("RFI Folder", "RFI"), "bg-blue-500/10 text-blue-600"],
-              ["RFA", countType("RFA Folder", "RFA"), "bg-emerald-500/10 text-emerald-600"],
-              ["SI", countType("SI Folder", "SI"), "bg-amber-500/10 text-amber-600"],
-              ["NCR", countType("NCR Folder", "NCR"), "bg-rose-500/10 text-rose-600"],
-            ].map(([label, count, color]) => (
-              <div key={label} className={`p-2 rounded ${color}`}>
-                <div className="text-[10px]">{label}</div>
-                <div className="text-lg font-black">{count}</div>
+              ["RFI", "Request for Information", countType("RFI Folder", "RFI"), PALETTE.blue,    "text-blue-600 dark:text-blue-400"],
+              ["RFA", "Request for Approval",    countType("RFA Folder", "RFA"), PALETTE.emerald, "text-emerald-600 dark:text-emerald-400"],
+              ["SI",  "Site Instruction",        countType("SI Folder", "SI"),   PALETTE.amber,   "text-amber-600 dark:text-amber-400"],
+              ["NCR", "Non-Conformance Report",  countType("NCR Folder", "NCR"), PALETTE.rose,    "text-rose-600 dark:text-rose-400"],
+            ].map(([label, full, count, pal, txt]) => (
+              <div key={label} title={full} className="relative overflow-hidden rounded-lg border border-inherit pt-3 pb-2.5 px-1 shadow-sm transition-transform hover:-translate-y-0.5"
+                style={{ background: `linear-gradient(160deg, ${pal[0]}1F, ${pal[1]}0D)` }}>
+                <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${pal[0]}, ${pal[1]})` }} />
+                <div className={`text-[10px] font-black tracking-wider ${txt}`}>{label}</div>
+                <div className={`text-3xl font-black tabular-nums leading-tight mt-0.5 ${txt}`}>{count}</div>
+                <div className="mx-2 mt-1.5 h-1 rounded-full bg-slate-200/70 dark:bg-slate-800 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, count * 20)}%`, background: `linear-gradient(90deg, ${pal[0]}, ${pal[1]})` }} />
+                </div>
               </div>
             ))}
           </div>
@@ -1450,9 +1471,9 @@ function App() {
           ["machinery", t.machineryTitle, "Truck", "text-amber-600", "bg-amber-500/10 text-amber-600"],
           ["manpower", t.manpowerTitle, "HardHat", "text-blue-600", "bg-blue-500/10 text-blue-600"],
         ].map(([key, title, icon, iconColor, qtyColor]) => (
-          <Card key={key} className="lg:col-span-3">
+          <Card key={key} className="lg:col-span-3 flex flex-col">
             <CardTitle icon={icon} iconColor={iconColor} right={editBtn(key)}>{title}</CardTitle>
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div className="space-y-2 flex-1 min-h-0 max-h-[24rem] overflow-y-auto pr-1">
               {data[key].map((row, i) => (
                 <div key={i} className="flex justify-between items-center text-xs p-1.5 rounded bg-slate-50 dark:bg-slate-900 border border-inherit">
                   <span>{row.name}</span>
@@ -1536,7 +1557,7 @@ function App() {
           <button onClick={() => selectTab("catDrawing")} className="text-xs font-bold text-blue-600 flex items-center gap-1">
             <span>{t.viewAllFiles}</span><Icon name="ChevronRight" size={14} />
           </button>
-        }>{t.incomingDocuments}</CardTitle>
+        }>{t.incomingDocuments} <span className="ml-2 normal-case px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono">{t.totalFiles}: {totalDocs}</span></CardTitle>
         <DocsTable docs={recentDocs} t={t} isAdmin={isAdmin} onDelete={deleteDocument} onOpen={openDoc} />
       </Card>
     </>
@@ -1547,7 +1568,7 @@ function App() {
     <div className="space-y-6">
       <Card className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h2 className="text-lg font-bold uppercase">{isKm ? currentCategory.labelKm : currentCategory.label}</h2>
+          <h2 className="text-lg font-bold uppercase">{isKm ? currentCategory.labelKm : currentCategory.label} <span className="ml-2 normal-case px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-mono">{filteredDocs.length} {t.filesUnit}</span></h2>
           {canEditData && (
             <button onClick={() => setModal("upload")} className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-2">
               <Icon name="Upload" /><span>{t.uploadFile}</span>
@@ -1848,7 +1869,7 @@ function App() {
         )}
         <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 flex-1">{activeTab === "dashboard" ? dashboard : categoryView}</div>
         <footer className="px-6 py-4 text-center text-[11px] border-t border-slate-200 dark:border-[#222] text-slate-500 dark:text-slate-400">
-          © 11/2026 LEVI JIN. All rights reserved. Reproduction or redistribution is strictly prohibited.
+          {t.copyright}
         </footer>
       </main>
       {loginModal}
