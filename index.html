@@ -425,7 +425,7 @@ const INITIAL_PERMISSIONS = {
 };
 
 // ថ្ងៃនេះ (កំណត់ថេរសម្រាប់ Demo; បើចង់ឲ្យត្រូវតាមពិត ប្តូរជា new Date())
-const TODAY = new Date("2026-11-05");
+const TODAY = new Date(); // ថ្ងៃនេះពិតប្រាកដ (ប្រើគណនាចំនួនថ្ងៃកន្លងផុត)
 const LOC = { lat: 11.420138, lon: 104.926854 };   // ទីតាំងគម្រោង (GPS)
 const PROJECT_ADDRESS = "Stoeng Prek Thnoat Bridge, Phnom Penh, Cambodia";
 const STATUSES = ["Approved", "Approved As Noted", "In Progress", "Pending", "Rejected"]; // ស្ថានភាពឯកសារ
@@ -531,9 +531,9 @@ function Field({ label, children }) {
 // ពាក្យបន្ថែម (រួមបញ្ចូលជាមួយ translations ពេលប្រើ)
 const EXTRA = {
   en: { edit: "Edit", addItem: "+ Add item", delete: "Delete", staffRole: "Staff (Allowed Sections)", viewerRole: "Viewer (Dashboard only)",
-        browse: "Choose file from PC", allowEdit: "Allow Staff to edit Dashboard data", photoBtn: "Upload 10 Photos" },
+        browse: "Choose file from PC", allowEdit: "Edit Dashboard Data (progress %, dates, S-Curve, lists, photos)", photoBtn: "Upload 10 Photos" },
   km: { edit: "កែប្រែ", addItem: "+ បន្ថែមធាតុថ្មី", delete: "លុប", staffRole: "បុគ្គលិក (តាមផ្នែកអនុញ្ញាត)", viewerRole: "អ្នកមើល (តែ Dashboard)",
-        browse: "ជ្រើសឯកសារពីកុំព្យូទ័រ", allowEdit: "អនុញ្ញាតឲ្យបុគ្គលិកកែទិន្នន័យ Dashboard", photoBtn: "បញ្ចូលរូប ៥" },
+        browse: "ជ្រើសឯកសារពីកុំព្យូទ័រ", allowEdit: "កែប្រែទិន្នន័យ Dashboard (%, ថ្ងៃ, S-Curve, បញ្ជី, រូបថត)", photoBtn: "បញ្ចូលរូប ៥" },
 };
 
 // រក្សាទុកទិន្នន័យ: localStorage (ជានិច្ច) + Supabase តារាង app_state (បើកំណត់ហើយ)
@@ -810,6 +810,31 @@ function App() {
   const isAdmin = role === "admin";
   const isKm = lang === "km";
 
+  /* ---------- ស្ថិតិ: អ្នកកំពុងអនឡាញ (Realtime Presence) និងចំនួនចូលមើលសរុប ---------- */
+  const [online, setOnline] = useState(1);    // ចំនួនអ្នក/Tab ដែលកំពុងបើក website ពេលនេះ
+  const [visits, setVisits] = useState(null); // ចំនួនចូលមើលសរុប (រាប់ម្តងក្នុងមួយ browser session; refresh មិនរាប់បន្ថែម)
+  useEffect(() => {
+    const counted = sessionStorage.getItem("tia-visit-counted");
+    sessionStorage.setItem("tia-visit-counted", "1");
+    if (sb) {
+      // Cloud: រាប់ក្នុង Database (function track_visit) ឬអានតែលេខបើរាប់រួចហើយ
+      const q = counted ? sb.from("site_stats").select("value").eq("key", "visits").maybeSingle().then(({ data }) => data && data.value)
+                        : sb.rpc("track_visit").then(({ data }) => data);
+      Promise.resolve(q).then((n) => { if (n != null) setVisits(Number(n)); });
+    } else {
+      const n = Number(localStorage.getItem("tia-visits") || 0) + (counted ? 0 : 1); // Demo: រាប់ក្នុង Browser នេះតែប៉ុណ្ណោះ
+      localStorage.setItem("tia-visits", n);
+      setVisits(n);
+      return;
+    }
+    // អ្នកកំពុងអនឡាញ: ម្នាក់ៗមាន key ផ្ទាល់ខ្លួន ហើយ Supabase រាប់ចំនួនដែលភ្ជាប់ក្នុងពេលតែមួយ
+    const key = window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
+    const channel = sb.channel("tia-online", { config: { presence: { key } } });
+    channel.on("presence", { event: "sync" }, () => setOnline(Object.keys(channel.presenceState()).length))
+      .subscribe((status) => { if (status === "SUBSCRIBED") channel.track({ at: Date.now() }); });
+    return () => { sb.removeChannel(channel); };
+  }, []);
+
   /* ---------- Supabase Auth: Google Login, តួនាទី, បញ្ជីអ្នកប្រើ ---------- */
   // ១) តាមដាន session
   useEffect(() => {
@@ -942,7 +967,12 @@ function App() {
     if (download) { const a = document.createElement("a"); a.href = url; a.download = f.name || doc.name; a.click(); } else window.open(url);
   };
 
-  const deleteDocument = (id) => setDocuments(documents.filter((d) => d.id !== id));
+  const deleteDocument = async (id) => {
+    // Cloud Mode: លុប File ពិតពី Supabase Storage ផង (ច្បាប់ RLS អនុញ្ញាតតែ Admin) កុំឲ្យសល់ឯកសារស្រពោន ស៊ីទំហំ 1 GB
+    const doc = documents.find((d) => d.id === id);
+    if (sb && doc && doc.hasFile) await sb.storage.from("files").remove([id]);
+    setDocuments(documents.filter((d) => d.id !== id));
+  };
 
   // ចុះឈ្មោះតាម Google (ក្លែងធ្វើ) → ក្លាយជា "pending" រង់ចាំ Admin អនុម័ត
   const simulateGoogleLogin = () => {
@@ -1060,16 +1090,16 @@ function App() {
   const header = (
     <header className="px-6 py-3.5 border-b flex items-center justify-between shrink-0 bg-white border-slate-200 dark:bg-[#0A0A0A] dark:border-[#222]">
       <div className="flex items-center gap-4 text-xs font-bold">
-        <span>Date: Thursday, Nov 5, 2026</span>
-        <span className="text-emerald-600">Active Online: 8</span>
-        <span className="text-blue-600">Total Visits: 1,594</span>
+        <span>Date: {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}</span>
+        <span className="text-emerald-600">Active Online: {online}</span>
+        <span className="text-blue-600">Total Visits: {visits == null ? "…" : visits.toLocaleString()}</span>
       </div>
       <div className="flex items-center gap-3">
         <button onClick={() => !sb && setDemoRole(role === "admin" ? "staff" : role === "staff" ? "viewer" : "admin")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold border ${isAdmin ? "bg-blue-600 border-blue-600 text-white" : "bg-amber-500/10 border-amber-500/30 text-amber-600"}`}>
           {isAdmin ? t.adminRole : role === "staff" ? t.staffRole : t.viewerRole}
         </button>
-        {isAdmin && <button onClick={openEditDash} className="px-3 py-1.5 rounded-md text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700">{t.editDashData}</button>}
+        {canEditData && <button onClick={openEditDash} className="px-3 py-1.5 rounded-md text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700">{t.editDashData}</button>}
         <button onClick={() => setLang(isKm ? "en" : "km")} className="px-2.5 py-1.5 rounded-md text-xs font-bold border border-inherit">{isKm ? "EN" : "ខ្មែរ (KM)"}</button>
         <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="p-1.5 rounded-md border border-inherit">
           <Icon name={theme === "light" ? "Moon" : "Sun"} />
@@ -1431,7 +1461,7 @@ function App() {
 
 // ៤) កែប្រែទិន្នន័យ Dashboard (% សម្រេច, ថ្ងៃចាប់ផ្តើម/បញ្ចប់, S-Curve Actual)
 // ៤) កែប្រែទិន្នន័យ Dashboard (% សម្រេច, ថ្ងៃចាប់ផ្តើម/បញ្ចប់, S-Curve Actual)
-  const editDashModal = modal === "editDash" && isAdmin && editForm && (
+  const editDashModal = modal === "editDash" && canEditData && editForm && (
     <Modal title={t.editDashData} onClose={() => setModal(null)} width="max-w-xl">
       <form onSubmit={saveEditDash} className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
