@@ -773,6 +773,113 @@ function DroneGallery({ images, title, onUpload, uploadLabel }) {
 /* =====================================================================
    ផ្នែកទី ៥៖ App ចម្បង
    ===================================================================== */
+// ក្រាប S-Curve: Planned (ខៀវ) និង Actual (ក្រហម)
+// - លេខខែនីមួយៗនៅចំកណ្តាលក្រោមចំណុចរបស់វា
+// - ខែដែល 0% ឬទទេ (មិនទាន់មានទិន្នន័យ) មិនត្រូវគូស ហើយបន្ទាត់មិនភ្ជាប់ទៅខែនោះ
+// - ដាក់ mouse (ឬចុចលើទូរស័ព្ទ) លើខែណាមួយ បង្ហាញបន្ទាត់ណែនាំ និងលេខភាគរយខែនោះ
+function SCurveChart({ data }) {
+  const [hover, setHover] = useState(null); // លេខរៀងខែដែល mouse ជិតបំផុត
+  const W = 600, H = 280, L = 42, R = 28, T = 34, B = 50; // ទំហំក្រាប និងគែម (padding)
+  const n = data.length;
+  const x = (i) => (n < 2 ? (L + W - R) / 2 : L + (i * (W - L - R)) / (n - 1)); // ទីតាំងផ្ដេករបស់ខែទី i
+  const y = (v) => T + (1 - Number(v) / 100) * (H - T - B);                      // ទីតាំងបញ្ឈរតាម %
+  const has = (v) => Number(v) > 0;                                               // 0% ឬទទេ = មិនទាន់មានទិន្នន័យ
+
+  const SERIES = [
+    { key: "planned", name: "Planned", line: "#2563EB", fill: "#EFF6FF", border: "#60A5FA", text: "#1D4ED8" },
+    { key: "actual", name: "Actual", line: "#DC2626", fill: "#FFF1F2", border: "#FB7185", text: "#BE123C" },
+  ];
+
+  // បំបែកជាផ្នែកបន្តបន្ទាប់ (run) ដើម្បីកុំឲ្យបន្ទាត់ភ្ជាប់ឆ្លងកាត់ខែដែលគ្មានទិន្នន័យ
+  const runs = (key) => {
+    const out = []; let cur = [];
+    data.forEach((d, i) => {
+      if (has(d[key])) cur.push([x(i), y(d[key])]);
+      else if (cur.length) { out.push(cur); cur = []; }
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+
+  // ស្លាក % ទៅខាងលើ ឬក្រោមចំណុច ដើម្បីកុំឲ្យត្រួតគ្នា (ខ្សែណាខ្ពស់ជាង ស្លាកនៅខាងលើ)
+  const labelAbove = (d, key) => (key === "planned" ? Number(d.planned) >= Number(d.actual) : Number(d.actual) > Number(d.planned));
+
+  // បម្លែងទីតាំង mouse ទៅឯកតា viewBox ហើយរកខែដែលជិតបំផុត
+  const onMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    let best = 0;
+    for (let i = 1; i < n; i++) if (Math.abs(x(i) - px) < Math.abs(x(best) - px)) best = i;
+    setHover(best);
+  };
+
+  const hd = hover != null ? data[hover] : null;
+  const gap = hd && has(hd.planned) && has(hd.actual) ? Number(hd.actual) - Number(hd.planned) : null;
+  let bx = 0;
+  if (hd) { bx = x(hover) + 12; if (bx + 128 > W - 4) bx = x(hover) - 12 - 128; } // ប្តូរទិសបើជិតគែមស្តាំ
+
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" style={{ minWidth: 520 }}
+        onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}>
+        {/* បន្ទាត់ក្រឡាផ្ដេក + លេខ % ខាងឆ្វេង */}
+        {[0, 25, 50, 75, 100].map((g) => (
+          <g key={g}>
+            <line x1={L} x2={W - R} y1={y(g)} y2={y(g)} strokeDasharray="4 4" className="stroke-slate-300 dark:stroke-slate-700" />
+            <text x={L - 8} y={y(g) + 3} textAnchor="end" style={{ fontSize: 9 }} className="fill-slate-500">{g}%</text>
+          </g>
+        ))}
+        {/* បន្ទាត់ឈរស្រាលៗ និងឈ្មោះខែ ចំកណ្តាលក្រោមចំណុចនីមួយៗ */}
+        {data.map((d, i) => (
+          <g key={i}>
+            <line x1={x(i)} x2={x(i)} y1={T} y2={y(0)} strokeDasharray="2 5" className="stroke-slate-200 dark:stroke-slate-800" />
+            <text x={x(i)} y={H - 18} textAnchor="middle" style={{ fontSize: 10, fontWeight: hover === i ? 700 : 400 }} className="fill-slate-600 dark:fill-slate-300 font-mono">{d.month}</text>
+          </g>
+        ))}
+        {/* បន្ទាត់ណែនាំពេល hover */}
+        {hd && <line x1={x(hover)} x2={x(hover)} y1={T} y2={y(0)} strokeWidth="1.5" className="stroke-slate-400" />}
+
+        {/* ខ្សែ + ចំណុច + ស្លាក % (ចំពោះខែដែលមានទិន្នន័យតែប៉ុណ្ណោះ) */}
+        {SERIES.map((s) => (
+          <g key={s.key}>
+            {runs(s.key).map((pts, k) => pts.length > 1 && (
+              <polyline key={k} fill="none" stroke={s.line} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={pts.map((p) => p.join(",")).join(" ")} />
+            ))}
+            {data.map((d, i) => has(d[s.key]) && (
+              <g key={i}>
+                <circle cx={x(i)} cy={y(d[s.key])} r={hover === i ? 7 : 4.5} fill={s.line} stroke="#fff" strokeWidth="2" />
+                <rect x={x(i) - 18} y={y(d[s.key]) + (labelAbove(d, s.key) ? -28 : 9)} width="36" height="17" rx="5"
+                  fill={s.fill} stroke={s.border} strokeWidth="1" />
+                <text x={x(i)} y={y(d[s.key]) + (labelAbove(d, s.key) ? -16 : 21)} textAnchor="middle"
+                  style={{ fontSize: 10, fontWeight: 800 }} fill={s.text}>{d[s.key]}%</text>
+              </g>
+            ))}
+          </g>
+        ))}
+
+        {/* ប្រអប់បង្ហាញលេខពេល hover */}
+        {hd && (
+          <g pointerEvents="none">
+            <rect x={bx} y={T + 2} width="128" height="78" rx="8" strokeWidth="1" className="fill-white dark:fill-slate-900 stroke-slate-300 dark:stroke-slate-600" />
+            <text x={bx + 10} y={T + 20} style={{ fontSize: 11, fontWeight: 700 }} className="fill-slate-800 dark:fill-slate-100">{hd.month}</text>
+            {SERIES.map((s, k) => (
+              <g key={s.key}>
+                <circle cx={bx + 14} cy={T + 33 + k * 16} r="4" fill={s.line} />
+                <text x={bx + 24} y={T + 37 + k * 16} style={{ fontSize: 10 }} className="fill-slate-600 dark:fill-slate-300">{s.name}</text>
+                <text x={bx + 118} y={T + 37 + k * 16} textAnchor="end" style={{ fontSize: 11, fontWeight: 800 }} fill={s.text}>{has(hd[s.key]) ? `${hd[s.key]}%` : "—"}</text>
+              </g>
+            ))}
+            <text x={bx + 10} y={T + 70} style={{ fontSize: 10 }} className="fill-slate-500">Gap</text>
+            <text x={bx + 118} y={T + 70} textAnchor="end" style={{ fontSize: 11, fontWeight: 800 }} fill={gap == null ? "#94A3B8" : gap < 0 ? "#DC2626" : "#059669"}>
+              {gap == null ? "—" : `${gap > 0 ? "+" : ""}${gap}%`}
+            </text>
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+}
+
 function App() {
   /* ---------- ក. State (ទិន្នន័យដែលផ្លាស់ប្តូរបាន) ---------- */
   const [lang, setLang] = useState("en");               // ភាសា: "en" ឬ "km"
@@ -786,6 +893,7 @@ function App() {
   const [activeSub, setActiveSub] = useState("");       // Sub-Folder ដែលកំពុងជ្រើស
   const [modal, setModal] = useState(null);             // Popup ដែលកំពុងបើក: "login" | "permissions" | "upload" | "editDash" | null
   const [accessDenied, setAccessDenied] = useState(false); // បង្ហាញបដាក្រហម "ហាមឃាត់"
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024); // Sidebar: Desktop បើក, ទូរស័ព្ទ/Tablet បិទជាមុន
 
   const [users, setUsers] = useState(sb ? [] : INITIAL_USERS);
   const [currentUser, setCurrentUser] = useState(sb ? GUEST : INITIAL_USERS[0]);
@@ -930,6 +1038,7 @@ function App() {
   // ចុចលើម៉ឺនុយខាងឆ្វេង
   const selectTab = (key) => {
     if (!canAccess(key)) return flashAccessDenied();
+    if (window.innerWidth < 1024) setSidebarOpen(false); // ទូរស័ព្ទ/Tablet: បិទ Sidebar បន្ទាប់ពីជ្រើស
     setActiveTab(key);
     const cat = categories.find((c) => c.key === key);
     setActiveSub(cat && cat.subFolders.length > 0 ? cat.subFolders[0] : "");
@@ -1026,11 +1135,15 @@ function App() {
 
   // ===== របារចំហៀងខាងឆ្វេង (Sidebar) =====
   const sidebar = (
-    <aside className="w-64 shrink-0 flex flex-col justify-between border-r bg-[#1B2A4E] border-[#152240] dark:bg-[#0A0A0A] dark:border-[#222] text-white">
+    <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 max-w-[85vw] shrink-0 flex flex-col justify-between overflow-y-auto border-r bg-[#1B2A4E] border-[#152240] dark:bg-[#0A0A0A] dark:border-[#222] text-white transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:hidden"}`}>
       <div>
-        <div className="p-4 border-b border-white/10">
-          <div className="font-bold text-sm uppercase text-blue-300">{t.companyName}</div>
-          <div className="text-xs mt-0.5 text-slate-300">{t.projectName}</div>
+        <div className="p-4 border-b border-white/10 flex items-start justify-between gap-2">
+          <div>
+            <div className="font-bold text-sm uppercase text-blue-300">{t.companyName}</div>
+            <div className="text-xs mt-0.5 text-slate-300">{t.projectName}</div>
+          </div>
+          {/* ប៊ូតុងបង្រួម Sidebar (ជ្រុងលើខាងស្តាំ) */}
+          <button onClick={() => setSidebarOpen(false)} title="Collapse menu" className="p-1 rounded hover:bg-white/10 text-slate-300"><Icon name="ChevronLeft" size={18} /></button>
         </div>
 
         <div className="p-3 border-b border-white/10">
@@ -1088,13 +1201,14 @@ function App() {
 
   // ===== ក្បាលទំព័រ (Header): ប៊ូតុងតួនាទី, ភាសា, Night Mode =====
   const header = (
-    <header className="px-6 py-3.5 border-b flex items-center justify-between shrink-0 bg-white border-slate-200 dark:bg-[#0A0A0A] dark:border-[#222]">
-      <div className="flex items-center gap-4 text-xs font-bold">
-        <span>Date: {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}</span>
+    <header className="sticky top-0 z-20 px-3 sm:px-6 py-3 border-b flex flex-wrap items-center justify-between gap-2 shrink-0 bg-white border-slate-200 dark:bg-[#0A0A0A] dark:border-[#222]">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-bold">
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} title="Menu" className="px-2.5 py-1 rounded-md border border-inherit text-base leading-none">☰</button>
+        <span className="hidden sm:inline">Date: {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}</span>
         <span className="text-emerald-600">Active Online: {online}</span>
         <span className="text-blue-600">Total Visits: {visits == null ? "…" : visits.toLocaleString()}</span>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => !sb && setDemoRole(role === "admin" ? "staff" : role === "staff" ? "viewer" : "admin")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold border ${isAdmin ? "bg-blue-600 border-blue-600 text-white" : "bg-amber-500/10 border-amber-500/30 text-amber-600"}`}>
           {isAdmin ? t.adminRole : role === "staff" ? t.staffRole : t.viewerRole}
@@ -1112,7 +1226,7 @@ function App() {
   const dashboard = (
     <>
       {/* ជួរទី ១: វឌ្ឍនភាពសរុប | ចំនួនថ្ងៃ | RFI/RFA/SI/NCR */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <Card className="flex items-center justify-between">
           <div>
             <div className="text-xs font-bold uppercase">{t.overallProject}</div>
@@ -1167,28 +1281,7 @@ function App() {
               <span className="text-blue-600">● Planned (%)</span><span className="text-rose-700">● Actual (%)</span>
             </div>
           }>{t.sCurveTitle}</CardTitle>
-          <div className="h-64 pt-4">
-            <svg className="w-full h-full overflow-visible" viewBox="0 0 500 180">
-              {/* បន្ទាត់ក្រឡាផ្ដេក */}
-              {[0, 45, 90, 135, 180].map((y) => <line key={y} x1="0" y1={y} x2="500" y2={y} stroke="#94A3B8" strokeOpacity="0.3" strokeDasharray="4 4" />)}
-              <polyline fill="none" stroke="#2563EB" strokeWidth="3" points={linePoints("planned")} />
-              <polyline fill="none" stroke="#B91C1C" strokeWidth="3.5" points={linePoints("actual")} />
-              {/* ចំណុច + ស្លាក % លើបន្ទាត់នីមួយៗ */}
-              {sCurve.map((d, i) => (
-                <g key={d.month}>
-                  <circle cx={xOf(i)} cy={yOf(d.planned)} r="4" fill="#2563EB" />
-                  <rect x={xOf(i) - 14} y={yOf(d.planned) - 22} width="28" height="13" rx="3" fill="#2563EB" />
-                  <text x={xOf(i)} y={yOf(d.planned) - 12} textAnchor="middle" className="text-[9px] font-mono fill-white font-bold">{d.planned}%</text>
-                  <circle cx={xOf(i)} cy={yOf(d.actual)} r="5" fill="#B91C1C" />
-                  <rect x={xOf(i) - 14} y={yOf(d.actual) + 6} width="28" height="13" rx="3" fill="#B91C1C" />
-                  <text x={xOf(i)} y={yOf(d.actual) + 16} textAnchor="middle" className="text-[9px] font-mono fill-white font-bold">{d.actual}%</text>
-                </g>
-              ))}
-            </svg>
-            <div className="flex justify-between text-[10px] font-mono mt-2 pt-2 border-t border-inherit">
-              {sCurve.map((d) => <span key={d.month}>{d.month}</span>)}
-            </div>
-          </div>
+          <SCurveChart data={sCurve} />
         </Card>
 
         {/* បញ្ជីគ្រឿងចក្រ និងបុគ្គលិក (រចនាដូចគ្នា ប្រើ loop ម្តង; ប៊ូតុង Edit សម្រាប់ Admin/Staff ដែលបានអនុញ្ញាត) */}
@@ -1567,7 +1660,8 @@ function App() {
 
   /* ---------- ង. ផ្គុំគ្រប់ផ្នែកជាទំព័រពេញ ---------- */
   return (
-    <div className={`min-h-screen flex text-sm bg-[#F4F7FC] text-[#111827] dark:bg-black dark:text-white ${isKm ? "font-khmer text-[15px] leading-relaxed" : "font-serif"}`}>
+    <div className={`h-[100dvh] overflow-hidden flex text-sm bg-[#F4F7FC] text-[#111827] dark:bg-black dark:text-white ${isKm ? "font-khmer text-[15px] leading-relaxed" : "font-serif"}`}>
+      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />} {/* ផ្ទាំងបាំង: ចុចដើម្បីបិទ Sidebar លើទូរស័ព្ទ/Tablet */}
       {sidebar}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {header}
@@ -1583,7 +1677,7 @@ function App() {
             <button onClick={() => setAccessDenied(false)}><Icon name="X" /></button>
           </div>
         )}
-        <div className="p-6 space-y-6 flex-1">{activeTab === "dashboard" ? dashboard : categoryView}</div>
+        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 flex-1">{activeTab === "dashboard" ? dashboard : categoryView}</div>
         <footer className="px-6 py-4 text-center text-[11px] border-t border-slate-200 dark:border-[#222] text-slate-500 dark:text-slate-400">
           © 11/2026 LEVI JIN. All rights reserved. Reproduction or redistribution is strictly prohibited.
         </footer>
