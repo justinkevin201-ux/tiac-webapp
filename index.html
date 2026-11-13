@@ -432,7 +432,7 @@ const STATUSES = ["Approved", "Approved As Noted", "In Progress", "Pending", "Re
 const FORMATS = ["PDF", "EXCEL", "WORD", "CAD", "PHOTO", "ZIP", "OTHER"];                  // ប្រភេទ File
 
 // ទម្រង់ទទេសម្រាប់ Form បញ្ចូលឯកសារថ្មី
-const EMPTY_DOC_FORM = { name: "", category: "catDrawing", subFolder: "Master List Tracking of CD & SD", format: "PDF", status: "Approved" };
+const EMPTY_DOC_FORM = { docNum: "", name: "", category: "catDrawing", subFolder: "Master List Tracking of CD & SD", format: "PDF", status: "Approved" };
 
 // របៀបតម្រៀបឯកសារ (key ត្រូវនឹងជម្រើសក្នុង <select>)
 const SORTERS = {
@@ -708,7 +708,7 @@ function DocsTable({ docs, t, isAdmin, onDelete, onOpen }) {
         <tbody className="text-xs">
           {docs.map((doc) => (
             <tr key={doc.id} className="border-b border-slate-100 dark:border-[#222] hover:bg-slate-50 dark:hover:bg-slate-900/50">
-              <td className="py-3 px-3 font-mono font-bold text-blue-600">{doc.docNum}</td>
+              <td className="py-3 px-3 font-mono font-bold text-blue-600 text-[11px] whitespace-nowrap">{doc.docNum}</td>
               <td className="py-3 px-3 font-bold">
                 <div>{doc.name}</div>
                 <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border inline-block mt-0.5 ${FORMAT_STYLE[doc.format] || DEFAULT_BADGE}`}>{doc.format}</span>
@@ -1063,6 +1063,7 @@ function App() {
   const [sCurve, setSCurve] = usePersist("tia-scurve", initialSCurveData);
   const [completePct, setCompletePct] = usePersist("tia-pct", 68);   // % ការងារសម្រេចបាន
   const [dates, setDates] = usePersist("tia-dates", { startDate: "2026-05-01", endDate: "2026-12-31" });
+  const [trackerManual, setTrackerManual] = usePersist("tia-trackers", { RFI: "", RFA: "", SI: "", NCR: "" }); // លេខ RFI/RFA/SI/NCR បញ្ចូលដោយដៃ ("" = រាប់ស្វ័យប្រវត្តិ)
 
   const [filters, setFilters] = useState({ search: "", format: "ALL", status: "ALL", sort: "DATE_DESC" });
   const [newDoc, setNewDoc] = useState(EMPTY_DOC_FORM);  // Form បញ្ចូលឯកសារថ្មី
@@ -1075,93 +1076,47 @@ function App() {
 
   /* ---------- ស្ថិតិ: អ្នកកំពុងអនឡាញ (Realtime Presence) និងចំនួនចូលមើលសរុប ---------- */
   const [online, setOnline] = useState(1);    // ចំនួនអ្នក/Tab ដែលកំពុងបើក website ពេលនេះ
-  const [visits, setVisits] = useState(null); // ចំនួនចូលមើលសរុប (រាប់ម្តងក្នុងមួយ browser session; refresh មិនរាប់បន្ថែម)
+  const [stats, setStats] = useState({ visitors: null, visits: null }); // visitors = ចំនួនអ្នកចូលមើល (ម្នាក់រាប់ម្តង/Browser), visits = ចំនួនដងចូលមើល (រាប់ម្តងក្នុង ១ session)
   useEffect(() => {
     const counted = sessionStorage.getItem("tia-visit-counted");
     sessionStorage.setItem("tia-visit-counted", "1");
-    if (sb) {
-      // Cloud: រាប់ក្នុង Database (function track_visit) ឬអានតែលេខបើរាប់រួចហើយ
-      const q = counted ? sb.from("site_stats").select("value").eq("key", "visits").maybeSingle().then(({ data }) => data && data.value)
-                        : sb.rpc("track_visit").then(({ data }) => data);
-      Promise.resolve(q).then((n) => { if (n != null) setVisits(Number(n)); });
-    } else {
+    // ID អ្នកចូលមើល (ផ្ទុកក្នុង Browser): អ្នកដដែលចូលម្តងទៀត មិនរាប់ជា Visitor ថ្មីទេ
+    let vid = localStorage.getItem("tia-visitor-id");
+    if (!vid) { vid = window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2); localStorage.setItem("tia-visitor-id", vid); }
+
+    if (!sb) {
       const n = Number(localStorage.getItem("tia-visits") || 0) + (counted ? 0 : 1); // Demo: រាប់ក្នុង Browser នេះតែប៉ុណ្ណោះ
       localStorage.setItem("tia-visits", n);
-      setVisits(n);
+      setStats({ visitors: 1, visits: n });
       return;
     }
+    const num = (v) => (v == null ? null : Number(v));
+    (async () => {
+      try {
+        if (!counted) {                                    // session ថ្មី: កត់ត្រាតាម Supabase function track_visitor
+          const { data, error } = await sb.rpc("track_visitor", { vid });
+          if (!error && data) return setStats({ visitors: num(data.visitors), visits: num(data.visits) });
+        } else {                                           // refresh: អានតែលេខ
+          const { data } = await sb.from("site_stats").select("key,value").in("key", ["visitors", "visits"]);
+          if (data && data.length) {
+            const m = Object.fromEntries(data.map((r) => [r.key, Number(r.value)]));
+            return setStats({ visitors: m.visitors ?? null, visits: m.visits ?? null });
+          }
+        }
+      } catch (e) { /* បន្តទៅ fallback */ }
+      // Fallback (មិនទាន់រត់ SQL ថ្មី): ប្រើ track_visit ចាស់ → បង្ហាញតែ Visits
+      const q = counted ? await sb.from("site_stats").select("value").eq("key", "visits").maybeSingle().then(({ data }) => data && data.value)
+                        : await sb.rpc("track_visit").then(({ data }) => data);
+      if (q != null) setStats({ visitors: null, visits: Number(q) });
+    })();
     // អ្នកកំពុងអនឡាញ: ម្នាក់ៗមាន key ផ្ទាល់ខ្លួន ហើយ Supabase រាប់ចំនួនដែលភ្ជាប់ក្នុងពេលតែមួយ
-    const key = window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
+    const key = vid + "-" + Math.random().toString(36).slice(2, 8);
     const channel = sb.channel("tia-online", { config: { presence: { key } } });
     channel.on("presence", { event: "sync" }, () => setOnline(Object.keys(channel.presenceState()).length))
       .subscribe((status) => { if (status === "SUBSCRIBED") channel.track({ at: Date.now() }); });
     return () => { sb.removeChannel(channel); };
   }, []);
 
-  /* ---------- Supabase Auth: Google Login, តួនាទី, បញ្ជីអ្នកប្រើ ---------- */
-  // ១) តាមដាន session
-  useEffect(() => {
-    if (!sb) return;
-    sb.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => subscription.unsubscribe();
-  }, []);
-  // ២) អាន profile របស់ខ្លួន (role: pending | staff | admin)
-  useEffect(() => {
-    if (!sb) return;
-    if (!session) return setProfile(null);
-    const loadProfile = async () => {
-      let { data } = await sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
-      // បើ profile មិនទាន់មាន (ឧ. Login មុនពេលរត់ SQL) ឲ្យបង្កើតខ្លួនឯងជា pending
-      if (!data) {
-        const u = session.user, meta = u.user_metadata || {};
-        ({ data } = await sb.from("profiles")
-          .insert({ id: u.id, email: u.email, name: meta.full_name || u.email, photo: meta.avatar_url || null, role: "pending" })
-          .select().maybeSingle());
-      }
-      setProfile(data);
-      // ជូនដំណឹងអ្នកចុះឈ្មោះថ្មី (ម្តងក្នុងមួយ session ដើម្បីកុំរំខាន; ក្រៅពីនេះមានបដាលឿងជានិច្ច)
-      if (data && data.role === "pending" && !sessionStorage.getItem("tia-pending-alert")) {
-        sessionStorage.setItem("tia-pending-alert", "1");
-        alert("សូមអរគុណសម្រាប់ការចុះឈ្មោះ! គណនីរបស់អ្នកស្ថិតក្នុងស្ថានភាពរង់ចាំការអនុម័តពី Admin។ សូមរង់ចាំការផ្ទៀងផ្ទាត់។\n\nThank you for registering! Your account is waiting for Admin approval.");
-      }
-    };
-    loadProfile();
-  }, [session]);
-  // ៣) បង្ហាញឈ្មោះ/រូបអ្នកប្រើនៅ Sidebar
-  useEffect(() => {
-    if (!sb) return;
-    setCurrentUser(profile
-      ? { id: profile.id, name: profile.name || profile.email, email: profile.email, photo: profile.photo || GUEST_PHOTO, status: profile.role === "pending" ? "pending" : "approved" }
-      : GUEST);
-  }, [profile]);
-  // ៤) Admin ទាញបញ្ជីអ្នកប្រើទាំងអស់ (សម្រាប់អនុម័ត)
-  useEffect(() => {
-    if (!sb || !isAdmin) return;
-    sb.from("profiles").select("*").order("created_at").then(({ data }) => setUsers((data || []).map((p) => ({
-      id: p.id, name: p.name || p.email, email: p.email, photo: p.photo || GUEST_PHOTO,
-      role: p.role === "admin" ? "admin" : "staff", status: p.role === "pending" ? "pending" : "approved", perms: p.perms || {},
-    }))));
-  }, [isAdmin]);
-
-  // Night Mode: ដាក់/ដក class "dark" លើ <html>
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
-
-  // គណនាចំនួនថ្ងៃ: សរុប / កន្លងផុត / នៅសល់
-  const DAY = 1000 * 60 * 60 * 24;
-  const start = new Date(dates.startDate);
-  const end = new Date(dates.endDate);
-  const totalDays = Math.max(1, Math.ceil((end - start) / DAY));
-  const daysElapsed = Math.min(totalDays, Math.max(0, Math.ceil((TODAY - start) / DAY)));
-  const remainingDays = totalDays - daysElapsed;
-
-  // បុគ្គលិកចូលមើលបានតែផ្នែកដែល Admin បានអនុញ្ញាត (Admin មើលបានទាំងអស់)
-  const myPerms = sb ? (profile?.perms || {}) : permissions; // សិទ្ធិរបស់អ្នកដែលកំពុងប្រើ
-  const canAccess = (key) => isAdmin || key === "dashboard" || (role === "staff" && myPerms[key]);
-  // Admin កែបានទាំងអស់; Staff កែបានតែពេល Admin អនុញ្ញាត (permissions.canEdit); Viewer កែមិនបាន
-  const canEditData = isAdmin || (role === "staff" && myPerms.canEdit);
   const editBtn = (key) => canEditData && (
     <button onClick={() => setEditing(key)} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">{t.edit}</button>
   );
@@ -1171,10 +1126,15 @@ function App() {
   const countType = (folder, word) =>
     documents.filter((d) => d.subFolder === folder || (d.category === "catRfiNcr" && d.name.includes(word))).length;
 
+  // លេខ RFI/RFA/SI/NCR: បើបញ្ចូលដោយដៃ ប្រើលេខនោះ បើទទេ រាប់ស្វ័យប្រវត្តិពីឯកសារ
+  const isManual = (k) => trackerManual[k] !== "" && trackerManual[k] != null;
+  const trackerCount = (k) => (isManual(k) ? Number(trackerManual[k]) : countType(k + " Folder", k));
+
   // លេខ DOC # ស្វ័យប្រវត្តិ: រាប់តាមលំដាប់ Upload (DOC-0001, 0002, ...) ហើយរាប់ឡើងវិញដោយខ្លួនឯង ពេលលុបឯកសារ
+  // ឯកសារចាស់ (DOC-xxxx) នៅតែរាប់ស្វ័យប្រវត្តិ; ឯកសារដែលវាយលេខដោយដៃ (NTB-SPT-...) បង្ហាញតាមដែលបានវាយ
   const numbered = [...documents]
     .sort((a, b) => Number(a.id) - Number(b.id))
-    .map((d, i) => ({ ...d, docNum: `DOC-${String(i + 1).padStart(4, "0")}` }));
+    .map((d, i) => ({ ...d, docNum: !d.docNum || /^DOC-\d+$/i.test(d.docNum) ? `DOC-${String(i + 1).padStart(4, "0")}` : d.docNum }));
   const totalDocs = numbered.filter((d) => canAccess(d.category)).length;   // ចំនួនឯកសារដែលមាននៅពេលនេះ
 
   // ចម្រោះឯកសារ: តាមសិទ្ធិ → ប្រភេទ → Sub-Folder → ស្វែងរក → Format → Status → តម្រៀប
@@ -1217,10 +1177,13 @@ function App() {
     e.preventDefault();
     if (!newDoc.name.trim() || !newFile) return;
     const cat = categories.find((c) => c.key === newDoc.category);
+    const docNum = newDoc.docNum.trim().replace(/\s+/g, "").toUpperCase();   // លេខឯកសារវាយដោយដៃ ឧ. NTB-SPT-BP-SD-STR-0001-V00
+    if (!docNum) return alert(isKm ? "សូមវាយលេខឯកសារ (Document No.)" : "Please enter the Document No.");
+    if (numbered.some((d) => d.docNum.toUpperCase() === docNum)) return alert((isKm ? "លេខឯកសារនេះមានរួចហើយ: " : "This Document No. already exists: ") + docNum);
     const created = {
       id: String(Date.now()),
-      docNum: `DOC-${Math.floor(1000 + Math.random() * 9000)}`, // លេខចៃដន្យ ៤ ខ្ទង់
       ...newDoc,
+      docNum,
       hubType: cat ? cat.label : "Document",
       date: new Date().toISOString().split("T")[0],
       by: currentUser.name,
@@ -1282,7 +1245,7 @@ function App() {
 
   // បើក Form កែប្រែ Dashboard (ចម្លងតម្លៃបច្ចុប្បន្នមកកែ)
   const openEditDash = () => {
-    setEditForm({ pct: completePct, dates: { ...dates }, sCurve: sCurve.map((d) => ({ ...d })) });
+    setEditForm({ pct: completePct, dates: { ...dates }, sCurve: sCurve.map((d) => ({ ...d })), trackers: { ...trackerManual } });
     setModal("editDash");
   };
   const saveEditDash = (e) => {
@@ -1290,6 +1253,7 @@ function App() {
     setCompletePct(editForm.pct);
     setDates(editForm.dates);
     setSCurve(editForm.sCurve);
+    setTrackerManual(editForm.trackers);
     setModal(null);
   };
 
@@ -1356,6 +1320,11 @@ function App() {
             <Icon name="LogIn" size={14} /><span>{t.loginGoogle}</span>
           </button>
         )}
+        <a href="https://t.me/levi_jine" target="_blank" rel="noopener noreferrer"
+          className="w-full py-1.5 rounded text-[10px] font-bold flex items-center justify-center gap-1.5 text-white hover:brightness-110"
+          style={{ background: "linear-gradient(90deg, #1D8FD1, #38B6F0)" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg><span>Telegram · @levi_jine</span>
+        </a>
         <div className="flex items-center gap-2.5 pt-1 border-t border-white/10">
           <img src={currentUser.photo} alt="User" className="w-8 h-8 rounded-full border border-blue-400 object-cover" />
           <div className="flex-1 truncate">
@@ -1374,7 +1343,10 @@ function App() {
         <button onClick={() => setSidebarOpen(!sidebarOpen)} title="Menu" className="px-2.5 py-1 rounded-md border border-inherit text-base leading-none">☰</button>
         <span className="hidden sm:inline">Date: {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}</span>
         <span className="text-emerald-600">Active Online: {online}</span>
-        <span className="text-blue-600">Total Visits: {visits == null ? "…" : visits.toLocaleString()}</span>
+        {stats.visitors != null
+          ? <><span className="text-blue-600" title="Unique visitors (1 per browser)">Total Visitors: {stats.visitors.toLocaleString()}</span>
+              <span className="hidden md:inline text-slate-500" title="Visits (1 per session)">Visits: {stats.visits == null ? "…" : stats.visits.toLocaleString()}</span></>
+          : <span className="text-blue-600">Total Visits: {stats.visits == null ? "…" : stats.visits.toLocaleString()}</span>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => !sb && setDemoRole(role === "admin" ? "staff" : role === "staff" ? "viewer" : "admin")}
@@ -1430,20 +1402,20 @@ function App() {
           <div className="flex justify-between items-center text-xs font-bold uppercase">
             <span>{t.rfiRfaSiNcrSummary}</span>
             <span className="text-[10px] text-blue-500 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded normal-case">
-              {t.totalTrackers}: {["RFI","RFA","SI","NCR"].reduce((n, k) => n + countType(k + " Folder", k), 0)}
+              {t.totalTrackers}: {["RFI","RFA","SI","NCR"].reduce((n, k) => n + trackerCount(k), 0)}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-2.5 text-center">
             {[
-              ["RFI", "Request for Information", countType("RFI Folder", "RFI"), PALETTE.blue,    "text-blue-600 dark:text-blue-400"],
-              ["RFA", "Request for Approval",    countType("RFA Folder", "RFA"), PALETTE.emerald, "text-emerald-600 dark:text-emerald-400"],
-              ["SI",  "Site Instruction",        countType("SI Folder", "SI"),   PALETTE.amber,   "text-amber-600 dark:text-amber-400"],
-              ["NCR", "Non-Conformance Report",  countType("NCR Folder", "NCR"), PALETTE.rose,    "text-rose-600 dark:text-rose-400"],
+              ["RFI", "Request for Information", trackerCount("RFI"), PALETTE.blue,    "text-blue-600 dark:text-blue-400"],
+              ["RFA", "Request for Approval",    trackerCount("RFA"), PALETTE.emerald, "text-emerald-600 dark:text-emerald-400"],
+              ["SI",  "Site Instruction",        trackerCount("SI"),   PALETTE.amber,   "text-amber-600 dark:text-amber-400"],
+              ["NCR", "Non-Conformance Report",  trackerCount("NCR"), PALETTE.rose,    "text-rose-600 dark:text-rose-400"],
             ].map(([label, full, count, pal, txt]) => (
               <div key={label} title={full} className="relative overflow-hidden rounded-lg border border-inherit pt-3 pb-2.5 px-1 shadow-sm transition-transform hover:-translate-y-0.5"
                 style={{ background: `linear-gradient(160deg, ${pal[0]}1F, ${pal[1]}0D)` }}>
                 <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${pal[0]}, ${pal[1]})` }} />
-                <div className={`text-[10px] font-black tracking-wider ${txt}`}>{label}</div>
+                <div className={`text-[10px] font-black tracking-wider ${txt}`}>{label}{isManual(label) && <span title="Manual" className="ml-0.5 opacity-70">✎</span>}</div>
                 <div className={`text-3xl font-black tabular-nums leading-tight mt-0.5 ${txt}`}>{count}</div>
                 <div className="mx-2 mt-1.5 h-1 rounded-full bg-slate-200/70 dark:bg-slate-800 overflow-hidden">
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, count * 20)}%`, background: `linear-gradient(90deg, ${pal[0]}, ${pal[1]})` }} />
@@ -1560,6 +1532,27 @@ function App() {
         }>{t.incomingDocuments} <span className="ml-2 normal-case px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono">{t.totalFiles}: {totalDocs}</span></CardTitle>
         <DocsTable docs={recentDocs} t={t} isAdmin={isAdmin} onDelete={deleteDocument} onOpen={openDoc} />
       </Card>
+
+      {/* Promote Telegram Channel */}
+      <a href="https://t.me/levi_jine" target="_blank" rel="noopener noreferrer"
+        className="group relative overflow-hidden rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-white shadow-lg transition-transform hover:-translate-y-0.5"
+        style={{ background: "linear-gradient(110deg, #1D8FD1 0%, #229ED9 45%, #38B6F0 100%)" }}>
+        <div className="pointer-events-none absolute -right-10 -top-10 w-40 h-40 rounded-full bg-white/10" />
+        <div className="pointer-events-none absolute right-24 -bottom-12 w-32 h-32 rounded-full bg-white/10" />
+        <div className="relative flex items-center gap-4">
+          <div className="w-12 h-12 shrink-0 rounded-full bg-white/20 backdrop-blur grid place-items-center ring-2 ring-white/40 group-hover:rotate-12 transition-transform">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+          </div>
+          <div>
+            <div className="text-sm sm:text-base font-black leading-tight">{isKm ? "ចូលរួម Channel Telegram របស់ខ្ញុំ" : "Join my Telegram Channel"}</div>
+            <div className="text-[11px] sm:text-xs text-white/85 mt-0.5">{isKm ? "ទទួលព័ត៌មាន និងឯកសារថ្មីៗ ជាមុនគេ" : "Get the latest updates and documents first"} · <span className="font-mono font-bold">@levi_jine</span></div>
+          </div>
+        </div>
+        <span className="relative shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-[#1D8FD1] text-xs font-black shadow group-hover:shadow-md">
+          <span className="relative flex w-2 h-2"><span className="absolute inline-flex w-full h-full rounded-full bg-[#229ED9] opacity-60 animate-ping" /><span className="relative inline-flex w-2 h-2 rounded-full bg-[#229ED9]" /></span>
+          {isKm ? "ចូលរួមឥឡូវនេះ" : "Join now"}
+        </span>
+      </a>
     </>
   );
 
@@ -1702,6 +1695,11 @@ function App() {
               setNewDoc({ ...newDoc, name: newDoc.name || f.name.replace(/\.[^.]+$/, ""), format: guessFormat(f.name) }); // ទាយឈ្មោះ និង Format
             }} />
         </Field>
+        <Field label="Document No.">
+          <input type="text" required value={newDoc.docNum} className={`${INPUT} font-mono uppercase`} placeholder="NTB-SPT-BP-SD-STR-0001-V00"
+            onChange={(e) => setNewDoc({ ...newDoc, docNum: e.target.value.toUpperCase() })} />
+          <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono">e.g. NTB-SPT-BP-SD-STR-0001-V00 · NTB-SPT-XX-CD-ARC-0002-V00</div>
+        </Field>
         <Field label="Document Title">
           <input type="text" required value={newDoc.name} className={INPUT} placeholder="e.g. Method Statement for Abutment Concrete"
             onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })} />
@@ -1757,6 +1755,18 @@ function App() {
           <Field label="Project End Date">
             <input type="date" value={editForm.dates.endDate} className={INPUT} onChange={(e) => setEditForm({ ...editForm, dates: { ...editForm.dates, endDate: e.target.value } })} />
           </Field>
+        </div>
+
+        <div className="pt-2 border-t border-inherit space-y-2">
+          <div className="font-bold uppercase text-blue-600">RFI / RFA / SI / NCR <span className="normal-case font-normal text-slate-500">— {isKm ? "ទទេ = រាប់ស្វ័យប្រវត្តិពីឯកសារ" : "empty = auto count from documents"}</span></div>
+          <div className="grid grid-cols-4 gap-2">
+            {["RFI", "RFA", "SI", "NCR"].map((k) => (
+              <Field key={k} label={k}>
+                <input type="number" min="0" className={INPUT} placeholder={`Auto: ${countType(k + " Folder", k)}`} value={editForm.trackers[k]}
+                  onChange={(e) => setEditForm({ ...editForm, trackers: { ...editForm.trackers, [k]: e.target.value === "" ? "" : Math.max(0, Number(e.target.value)) } })} />
+              </Field>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center justify-between pt-2 border-t border-inherit">
