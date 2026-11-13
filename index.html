@@ -1117,6 +1117,70 @@ function App() {
     return () => { sb.removeChannel(channel); };
   }, []);
 
+  /* ---------- Supabase Auth: Google Login, តួនាទី, បញ្ជីអ្នកប្រើ ---------- */
+  // ១) តាមដាន session
+  useEffect(() => {
+    if (!sb) return;
+    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+  // ២) អាន profile របស់ខ្លួន (role: pending | staff | admin)
+  useEffect(() => {
+    if (!sb) return;
+    if (!session) return setProfile(null);
+    const loadProfile = async () => {
+      let { data } = await sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+      // បើ profile មិនទាន់មាន (ឧ. Login មុនពេលរត់ SQL) ឲ្យបង្កើតខ្លួនឯងជា pending
+      if (!data) {
+        const u = session.user, meta = u.user_metadata || {};
+        ({ data } = await sb.from("profiles")
+          .insert({ id: u.id, email: u.email, name: meta.full_name || u.email, photo: meta.avatar_url || null, role: "pending" })
+          .select().maybeSingle());
+      }
+      setProfile(data);
+      // ជូនដំណឹងអ្នកចុះឈ្មោះថ្មី (ម្តងក្នុងមួយ session ដើម្បីកុំរំខាន; ក្រៅពីនេះមានបដាលឿងជានិច្ច)
+      if (data && data.role === "pending" && !sessionStorage.getItem("tia-pending-alert")) {
+        sessionStorage.setItem("tia-pending-alert", "1");
+        alert("សូមអរគុណសម្រាប់ការចុះឈ្មោះ! គណនីរបស់អ្នកស្ថិតក្នុងស្ថានភាពរង់ចាំការអនុម័តពី Admin។ សូមរង់ចាំការផ្ទៀងផ្ទាត់។\n\nThank you for registering! Your account is waiting for Admin approval.");
+      }
+    };
+    loadProfile();
+  }, [session]);
+  // ៣) បង្ហាញឈ្មោះ/រូបអ្នកប្រើនៅ Sidebar
+  useEffect(() => {
+    if (!sb) return;
+    setCurrentUser(profile
+      ? { id: profile.id, name: profile.name || profile.email, email: profile.email, photo: profile.photo || GUEST_PHOTO, status: profile.role === "pending" ? "pending" : "approved" }
+      : GUEST);
+  }, [profile]);
+  // ៤) Admin ទាញបញ្ជីអ្នកប្រើទាំងអស់ (សម្រាប់អនុម័ត)
+  useEffect(() => {
+    if (!sb || !isAdmin) return;
+    sb.from("profiles").select("*").order("created_at").then(({ data }) => setUsers((data || []).map((p) => ({
+      id: p.id, name: p.name || p.email, email: p.email, photo: p.photo || GUEST_PHOTO,
+      role: p.role === "admin" ? "admin" : "staff", status: p.role === "pending" ? "pending" : "approved", perms: p.perms || {},
+    }))));
+  }, [isAdmin]);
+
+  // Night Mode: ដាក់/ដក class "dark" លើ <html>
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
+
+  // គណនាចំនួនថ្ងៃ: សរុប / កន្លងផុត / នៅសល់
+  const DAY = 1000 * 60 * 60 * 24;
+  const start = new Date(dates.startDate);
+  const end = new Date(dates.endDate);
+  const totalDays = Math.max(1, Math.ceil((end - start) / DAY));
+  const daysElapsed = Math.min(totalDays, Math.max(0, Math.ceil((TODAY - start) / DAY)));
+  const remainingDays = totalDays - daysElapsed;
+
+  // បុគ្គលិកចូលមើលបានតែផ្នែកដែល Admin បានអនុញ្ញាត (Admin មើលបានទាំងអស់)
+  const myPerms = sb ? (profile?.perms || {}) : permissions; // សិទ្ធិរបស់អ្នកដែលកំពុងប្រើ
+  const canAccess = (key) => isAdmin || key === "dashboard" || (role === "staff" && myPerms[key]);
+  // Admin កែបានទាំងអស់; Staff កែបានតែពេល Admin អនុញ្ញាត (permissions.canEdit); Viewer កែមិនបាន
+  const canEditData = isAdmin || (role === "staff" && myPerms.canEdit);
   const editBtn = (key) => canEditData && (
     <button onClick={() => setEditing(key)} className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">{t.edit}</button>
   );
